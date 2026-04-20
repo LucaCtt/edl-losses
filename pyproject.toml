@@ -1,0 +1,42 @@
+[project]
+name = "edl-losses"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "torch>=2.11.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.10.0,<0.11.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+    "ALL", # include all the rules, including new ones
+]
+ignore = [
+    "D100",    # Missing docstring in public module
+    "D104",    # Missing docstring in public package
+    "D105",    # Missing docstring in magic method
+    "D203",    # Incorrect blank line before class
+    "D213",    # Multi line summary second line
+    "FBT001",  # Boolean-typed positional argument in function definition
+    "FBT002",  # Boolean-typed keyword argument in function definition
+    "FBT003",  # Boolean positional value in function call
+    "UP037",   # Remove quotes from type annotation
+    "TC001",   # Move application import into a type-checking block
+    "TC002",   # Move third-party import into a type-checking block
+    "TC003",   # Move standard library import into a type-checking block
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.11",
+]
+
