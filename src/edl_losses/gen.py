@@ -4,7 +4,7 @@ import torch.nn.functional as func
 from edl_losses.util import kl_div_dirichlet
 
 
-def gen_classifier_loss(
+def gen_loss(
     logits_in: torch.Tensor,
     logits_out: torch.Tensor,
     labels: torch.Tensor,

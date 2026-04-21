@@ -5,7 +5,14 @@ description = "Implementation of various EDL loss functions"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "numpy>=2.4.4",
     "torch>=2.11.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.11",
+    "torchvision>=0.26.0",
 ]
 
 [build-system]
@@ -33,10 +40,6 @@ ignore = [
     "TC001",   # Move application import into a type-checking block
     "TC002",   # Move third-party import into a type-checking block
     "TC003",   # Move standard library import into a type-checking block
-]
-
-[dependency-groups]
-dev = [
-    "ruff>=0.15.11",
+    "T201",    # `print` found
 ]
 
