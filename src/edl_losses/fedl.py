@@ -7,38 +7,74 @@ def fedl_loss(
     p: torch.Tensor,
     tau: torch.Tensor,
     labels: torch.Tensor,
+    eps: float = 1e-8,
 ) -> torch.Tensor:
     """F-EDL loss from Yoon and Kim 2026 (http://arxiv.org/abs/2510.18322).
 
+    You may want to clamp alpha and tau (e.g. between 1e-6 and 1e4) if you observe numerical issues.
+
     Arguments:
-        alpha: concentration parameters, shape (B, K), must be > 0 (use exp activation)
-        p:     allocation probabilities, shape (B, K), must sum to 1 (use softmax)
-        tau:   dispersion parameter, shape (B,) or (B, 1), must be > 0 (use softplus)
-        labels: ground truth class indices, shape (B,)
+        alpha (Tensor): concentration parameters, shape (B, K), must be > 0 (use exp activation).
+        p (Tensor): allocation probabilities, shape (B, K), must sum to 1 (use softmax).
+        tau (Tensor): dispersion parameter, shape (B,) or (B, 1), must be > 0 (use softplus).
+        labels (Tensor): ground truth class indices, shape (B,).
+        eps (float): small constant for numerical stability.
 
     Returns:
-        Scalar loss.
+        loss (Tensor): Scalar loss.
 
     """
-    num_classes = alpha.shape[-1]  # K
-    y = func.one_hot(labels, num_classes=num_classes).float()  # (B, K)
+    num_classes = alpha.shape[-1]
+    y = func.one_hot(labels, num_classes=num_classes).float()
 
-    tau = tau.view(-1, 1)  # (B, 1) for broadcasting
-    alpha0 = alpha.sum(dim=-1, keepdim=True)  # (B, 1) — Dirichlet strength
+    tau = tau.view(-1, 1)
+    alpha0 = alpha.sum(dim=-1, keepdim=True)
 
-    # Expected class probabilities under FD: E[pi_k] = (alpha_k + tau * p_k) / (alpha0 + tau)
-    denom = alpha0 + tau  # (B, 1)
-    expected_pi = (alpha + tau * p) / denom  # (B, K)
+    # Expected class probabilities under FD
+    denom = alpha0 + tau + eps
+    expected_pi = (alpha + tau * p) / denom
 
-    # Variance of FD: Var[pi_k] = term1 + term2
-    denom1 = denom + 1  # (B, 1)
-    term1 = (alpha + tau * p) * (alpha0 - alpha + tau * (1.0 - p)) / (denom**2 * denom1)  # (B, K)
-    term2 = tau**2 * p * (1.0 - p) / (denom * denom1)  # (B, K)
-    variance_pi = term1 + term2  # (B, K)
+    # Variance of FD
+    denom1 = denom + 1
+    term1 = (expected_pi * (1.0 - expected_pi)) / denom1
+    var_p = p * (1.0 - p)
+    term2 = (tau**2 * var_p) / (denom * denom1 + eps)
+    variance_pi = term1 + term2
 
-    l_mse = ((y - expected_pi) ** 2 + variance_pi).sum(dim=-1)  # (B,)
+    # Expected MSE over FD
+    l_mse = ((y - expected_pi) ** 2 + variance_pi).sum(dim=-1)
 
-    # L_reg = Brier score on p: sum_k (y_k - p_k)^2
-    l_reg = ((y - p) ** 2).sum(dim=-1)  # (B,)
+    # Regularization term (Brier scor)
+    l_reg = ((y - p) ** 2).sum(dim=-1)
 
     return (l_mse + l_reg).mean()
+
+
+def fedl_inference(
+    alpha: torch.Tensor,
+    p: torch.Tensor,
+    tau: torch.Tensor,
+    eps: float = 1e-8,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """F-EDL inference: returns predicted class and TU/EU/AU decomposition.
+
+    Arguments:
+        alpha (Tensor): evidence for each class, shape (batch_size, num_classes).
+        p (Tensor): allocation probabilities, shape (batch_size, num_classes).
+        tau (Tensor): dispersion parameter, shape (batch_size,) or (batch_size, 1).
+        eps (float): small constant for numerical stability.
+
+    Returns:
+        tuple: A tuple containing:
+            - class_indices (Tensor): predicted class indices, shape (batch_size,).
+            - uncertainty (Tensor): Total Uncertainty (TU) values, shape (batch_size,).
+            - class_probabilities (Tensor): class probabilities, shape (batch_size, num_classes).
+
+    """
+    tau = tau.view(-1, 1)
+    alpha0 = alpha.sum(dim=-1, keepdim=True)
+    expected_pi = (alpha + tau * p) / (alpha0 + tau + eps)
+
+    total_uncertainty = 1.0 - (expected_pi**2).sum(dim=-1)
+
+    return expected_pi.argmax(dim=-1), total_uncertainty, expected_pi
