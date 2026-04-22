@@ -73,7 +73,7 @@ edl_loss = EDLLoss(
 edl_loss(
     logits: Tensor, # (B, K) raw network output, before any activation
     labels: Tensor, # (B,) ground truth class indices
-    epoch: int | None, # current training epoch, used for KL annealing. If None, it will be incremented automatically at each call.
+    epoch: int, # current training epoch, used for KL annealing.
 ) -> Tensor # scalar
 ```
 
