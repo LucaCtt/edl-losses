@@ -13,14 +13,6 @@ class EDLLoss(torch.nn.Module):
     since the EDL formulation replaces the usual softmax with a ReLU to produce "evidence" for each class.
     ReLU is already applied inside this loss.
 
-    Arguments:
-        loss_type (Literal["sse", "ce", "mse"]): which base loss to use
-            - "sse": Sum of squares Bayes risk (Eq. 5) — recommended by paper.
-            - "ce":  Cross-entropy Bayes risk (Eq. 4).
-            - "mse": Type II Maximum Likelihood (Eq. 3).
-        kl_reg (bool): whether to add KL regularization term.
-        annealing_epochs (int): number of epochs over which to anneal the KL term.
-
     """
 
     def __init__(
@@ -29,22 +21,30 @@ class EDLLoss(torch.nn.Module):
         kl_reg: bool = True,
         annealing_epochs: int = 10,
     ) -> None:
-        """Initialize the EDL loss module."""
+        """Initialize the EDL loss module.
+
+        Arguments:
+            loss_type (Literal["sse", "ce", "mse"]): which base loss to use
+                - "sse": Sum of squares Bayes risk (Eq. 5) — recommended by paper.
+                - "ce":  Cross-entropy Bayes risk (Eq. 4).
+                - "mse": Type II Maximum Likelihood (Eq. 3).
+            kl_reg (bool): whether to add KL regularization term.
+            annealing_epochs (int): number of epochs over which to anneal the KL term.
+
+        """
         super().__init__()
 
         self.__loss_type = loss_type
         self.__kl_reg = kl_reg
         self.__annealing_epochs = annealing_epochs
-        self.__current_epoch = 0
 
-    def forward(self, logits: torch.Tensor, labels: torch.Tensor, epoch: int | None = None) -> torch.Tensor:
+    def forward(self, logits: torch.Tensor, labels: torch.Tensor, epoch: int) -> torch.Tensor:
         """Compute the EDL loss.
 
         Arguments:
             logits (Tensor): raw model outputs of shape (batch_size, num_classes).
             labels (Tensor): true class labels of shape (batch_size,).
             epoch (int, optional): current training epoch for KL annealing.
-                If None, it will automatically increment the internal epoch counter on each call.
 
         Returns:
             Tensor: scalar loss value.
@@ -55,8 +55,6 @@ class EDLLoss(torch.nn.Module):
         alpha = evidence + 1.0
         dirichlet_strength = alpha.sum(dim=-1, keepdim=True)
         p_hat = alpha / dirichlet_strength
-
-        self.__current_epoch = epoch if epoch is not None else self.__current_epoch + 1
 
         # One-hot encode labels
         y = func.one_hot(labels, num_classes=num_classes).float()
@@ -81,7 +79,7 @@ class EDLLoss(torch.nn.Module):
             kl = _kl_div_dirichlet(alpha_tilde)
 
             # Annealing coefficient: ramps from 0 to 1 over the first `annealing_epochs` epochs
-            lambda_t = min(1.0, self.__current_epoch / self.__annealing_epochs)
+            lambda_t = min(1.0, epoch / self.__annealing_epochs)
 
             loss = loss + lambda_t * kl
 

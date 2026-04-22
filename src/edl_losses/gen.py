@@ -13,15 +13,17 @@ class GENLoss(nn.Module):
     You might want to clamp input logits to a reasonable range (e.g. [-10, 10])
     if you observe numerical instability during training.
 
-    Arguments:
-        beta (float | Literal["auto"]): regularization weight for L2 term.
-            If "auto", uses the expected misclassification probability as in Eq. 6.
-        eps (float): small constant for numerical stability.
-
     """
 
     def __init__(self, beta: float | Literal["auto"] = "auto", eps: float = 1e-8) -> None:
-        """Initialize the GEN loss module."""
+        """Initialize the GEN loss module.
+
+        Arguments:
+            beta (float | Literal["auto"]): regularization weight for L2 term.
+                If "auto", uses the expected misclassification probability as in Eq. 6.
+            eps (float): small constant for numerical stability.
+
+        """
         super().__init__()
 
         self.__beta: float | Literal["auto"] = beta
@@ -44,17 +46,16 @@ class GENLoss(nn.Module):
 
         # L1 — Bernoulli NCE loss (Eq. 4)
         pos_per_class = (func.logsigmoid(logits_in) * y).sum(dim=0) / (y.sum(dim=0) + self.__eps)
-        neg_per_class = torch.log(1 - torch.sigmoid(logits_out) + self.__eps).mean(dim=0)
+        neg_per_class = func.logsigmoid(-logits_out).mean(dim=0)
         l1 = -(pos_per_class + neg_per_class).mean()
 
         # L2 — KL regularizer on misclassification Dirichlet (Eq. 5)
         evidence_in = torch.exp(logits_in)
         alpha_in = evidence_in + 1.0
         p_hat_k = (alpha_in * y).sum(dim=-1) / alpha_in.sum(dim=-1)
-        alpha_minus_k = (1.0 - y) * alpha_in + y * 1.0
-        kl = _kl_div_dirichlet(alpha_minus_k)
         weight = (1.0 - p_hat_k).detach() if self.__beta == "auto" else self.__beta
-        l2 = (weight * kl).mean()
+        alpha_wrong = alpha_in[~y.bool()].view(logits_in.shape[0], num_classes - 1)
+        l2 = (weight * _kl_div_dirichlet(alpha_wrong)).mean()
 
         # Overall loss (Eq. 6)
         return l1 + l2

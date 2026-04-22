@@ -14,7 +14,12 @@ class FEDLLoss(torch.nn.Module):
     """
 
     def __init__(self, eps: float = 1e-8) -> None:
-        """Initialize the F-EDL loss module."""
+        """Initialize the F-EDL loss module.
+
+        Arguments:
+            eps (float): small constant for numerical stability.
+
+        """
         super().__init__()
 
         self.__eps = eps
