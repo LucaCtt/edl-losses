@@ -1,5 +1,5 @@
-from edl_losses.edl import edl_inference, edl_loss
-from edl_losses.fedl import fedl_inference, fedl_loss
-from edl_losses.gen import gen_loss
+from edl_losses.edl import EDLLoss, edl_inference
+from edl_losses.fedl import FEDLLoss, fedl_inference
+from edl_losses.gen import GENLoss
 
-__all__ = ["edl_inference", "edl_loss", "fedl_inference", "fedl_loss", "gen_loss"]
+__all__ = ["EDLLoss", "FEDLLoss", "GENLoss", "edl_inference", "fedl_inference"]

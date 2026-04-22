@@ -54,24 +54,27 @@ See the [examples.ipynb](examples.ipynb) notebook, which compares the EDL losses
 
 ```python
 from edl_losses import (
-    edl_loss,
+    EDLLoss,
     edl_inference,
-    gen_loss,
-    fedl_loss,
+    GENLoss,
+    FEDLLoss,
     fedl_inference,
 )
 ```
 
-### `edl_loss`
+### `EDLLoss`
 
 ```python
+edl_loss = EDLLoss(
+    loss_type: str = "sse", # "sse" | "ce" | "mse"
+    kl_reg: bool = True,
+    annealing_epochs: int = 10
+)
 edl_loss(
-    logits: Tensor,       # (B, K) raw network output, before any activation
-    labels: Tensor,       # (B,)   ground truth class indices
-    epoch:  int,          # current training epoch, used for KL annealing
-    loss_type: str = "sse",  # "sse" | "ce" | "mse"
-    kl_reg:    bool = True,
-) -> Tensor  # scalar
+    logits: Tensor, # (B, K) raw network output, before any activation
+    labels: Tensor, # (B,) ground truth class indices
+    epoch: int | None, # current training epoch, used for KL annealing. If None, it will be incremented automatically at each call.
+) -> Tensor # scalar
 ```
 
 Implements Equations 3–5 of Sensoy et al. 2018. ReLU is applied internally to produce evidence. Three base losses are available:
@@ -80,7 +83,7 @@ Implements Equations 3–5 of Sensoy et al. 2018. ReLU is applied internally to 
 - `"ce"` — Cross-entropy Bayes risk
 - `"mse"` — Type II Maximum Likelihood
 
-When `kl_reg=True`, a KL divergence term penalizes evidence assigned to incorrect classes, annealed from 0 to 1 over the first 10 epochs.
+When `kl_reg=True`, a KL divergence term penalizes evidence assigned to incorrect classes, annealed from 0 to 1 over the first `annealing_epochs` epochs.
 
 > **Note:** The original paper uses ReLU for evidence. This can slow convergence compared to GEN/F-EDL which use `exp()`. If accuracy is lower than expected, consider clamping logits and using `exp()` before passing to this loss.
 
@@ -93,7 +96,7 @@ optimizer = torch.optim.Adam(model.parameters())
 for epoch in range(1, num_epochs + 1):
     for x, y in dataloader:
         optimizer.zero_grad()
-        loss = edl_loss(model(x), y, epoch=epoch, loss_type="sse")
+        loss = EDLLoss()(model(x), y, epoch=epoch, loss_type="sse")
         loss.backward()
         optimizer.step()
 ```
@@ -102,7 +105,7 @@ for epoch in range(1, num_epochs + 1):
 
 ```python
 edl_inference(
-    logits: Tensor,  # (B, K) raw network output
+    logits: Tensor, # (B, K) raw network output
 ) -> tuple[Tensor, Tensor, Tensor] # (predicted_classes (B,), uncertainty (B,), class_probs (B, K))
 ```
 
@@ -115,16 +118,18 @@ with torch.no_grad():
     pred, uncertainty, probs = edl_inference(model(x)) # uncertainty ∈ (0, 1] — high means uncertain
 ```
 
-### `gen_loss`
+### `GENLoss`
 
 ```python
-gen_loss(
-    logits_in:  Tensor,           # (B, K) network output on in-distribution samples
-    logits_out: Tensor,           # (B, K) network output on OOD samples
-    labels:     Tensor,           # (B,)   ground truth class indices
-    beta: float | str = "auto",  # KL weight; "auto" uses expected misclassification prob
+gen_loss = GENLoss(
     eps:  float = 1e-8,
-) -> Tensor  # scalar
+)
+gen_loss(
+    logits_in: Tensor, # (B, K) network output on in-distribution samples
+    logits_out: Tensor, # (B, K) network output on OOD samples
+    labels: Tensor, # (B,) ground truth class indices
+    beta: float | str = "auto", # KL weight; "auto" uses expected misclassification prob
+) -> Tensor # scalar
 ```
 
 Implements Equations 4–6 of Sensoy et al. 2020. Requires OOD samples at training time. The loss has two components:
@@ -142,23 +147,25 @@ When `beta="auto"`, the weight is set to `(1 - p̂ₖ)` per sample, i.e. the exp
 for x, y in dataloader:
     x_ood = generate_ood_samples(x)  # your OOD generator
     optimizer.zero_grad()
-    loss = gen_loss(model(x), model(x_ood), y)
+    loss = GENLoss()(model(x), model(x_ood), y)
     loss.backward()
     optimizer.step()
 ```
 
 GEN uses the same `edl_inference` function for inference, since the output head is identical to EDL.
 
-### `fedl_loss`
+### `FEDLLoss`
 
 ```python
-fedl_loss(
-    alpha:  Tensor,   # (B, K) concentration parameters, from exp() head
-    p:      Tensor,   # (B, K) allocation probabilities, from softmax() head
-    tau:    Tensor,   # (B,) or (B, 1) dispersion, from softplus() head
-    labels: Tensor,   # (B,)
+fedl_loss = FEDLoss(
     eps:    float = 1e-8,
-) -> Tensor  # scalar
+)
+fedl_loss(
+    alpha: Tensor, # (B, K) concentration parameters, from exp() head
+    p: Tensor, # (B, K) allocation probabilities, from softmax() head
+    tau: Tensor, # (B,) or (B, 1) dispersion, from softplus() head
+    labels: Tensor, # (B,)
+) -> Tensor # scalar
 ```
 
 Implements the objective from Section 3.2 and Appendix A.1 of Yoon & Kim 2026. The loss has two components:
@@ -172,9 +179,9 @@ No KL term or annealing schedule is required. The model must expose three separa
 class MyFEDLModel(nn.Module):
     def forward(self, x):
         z = self.backbone(x)
-        alpha = torch.exp(self.head_alpha(z))  # evidence, > 0
-        p = torch.softmax(self.head_p(z), dim=-1)  # allocation probs, sums to 1
-        tau = F.softplus(self.head_tau(z)).squeeze(-1)  # dispersion, > 0
+        alpha = torch.exp(self.head_alpha(z)) # evidence, > 0
+        p = torch.softmax(self.head_p(z), dim=-1) # allocation probs, sums to 1
+        tau = F.softplus(self.head_tau(z)).squeeze(-1) # dispersion, > 0
         return alpha, p, tau
 ```
 
@@ -184,7 +191,7 @@ class MyFEDLModel(nn.Module):
 for x, y in dataloader:
     optimizer.zero_grad()
     alpha, p, tau = model(x)
-    loss = fedl_loss(alpha, p, tau, y)
+    loss = FEDLoss()(alpha, p, tau, y)
     loss.backward()
     optimizer.step()
 ```
@@ -193,35 +200,14 @@ for x, y in dataloader:
 
 ```python
 fedl_inference(
-    alpha: Tensor,   # (B, K)
-    p:     Tensor,   # (B, K)
-    tau:   Tensor,   # (B,) or (B, 1)
-    eps:   float = 1e-8,
+    alpha: Tensor, # (B, K)
+    p: Tensor, # (B, K)
+    tau: Tensor, # (B,) or (B, 1)
+    eps: float = 1e-8,
 ) -> tuple[Tensor, Tensor, Tensor] # (predicted_classes (B,), total_uncertainty (B,), class_probs (B, K))
 ```
 
 Returns predicted classes, total uncertainty (TU), and expected class probabilities `E[π]`. TU is defined as `1 - Σ E[πₖ]²` and lies in `(0, 1]`.
-
-For the full TU/EU/AU decomposition, compute epistemic uncertainty separately:
-
-```python
-@torch.no_grad()
-def full_fedl_uncertainty(alpha, p, tau, eps=1e-8):
-    tau = tau.view(-1, 1)
-    alpha0 = alpha.sum(dim=-1, keepdim=True)
-    denom = alpha0 + tau + eps
-    E_pi = (alpha + tau * p) / denom
-
-    denom1 = denom + 1
-    term1 = (E_pi * (1.0 - E_pi)) / denom1
-    term2 = tau**2 * p * (1.0 - p) / (denom * denom1 + eps)
-    Var_pi = term1 + term2
-
-    TU = 1.0 - (E_pi**2).sum(dim=-1)  # total uncertainty
-    EU = Var_pi.sum(dim=-1)  # epistemic uncertainty
-    AU = TU - EU  # aleatoric uncertainty
-    return E_pi.argmax(dim=-1), TU, EU, AU
-```
 
 ## License
 

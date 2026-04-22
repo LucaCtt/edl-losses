@@ -1,7 +1,7 @@
 import torch
 
 
-def kl_div_dirichlet(alpha: torch.Tensor) -> torch.Tensor:
+def _kl_div_dirichlet(alpha: torch.Tensor) -> torch.Tensor:
     """KL divergence between Dirichlet(alpha_tilde) and Dirichlet(1,...,1).
 
     alpha_tilde is alpha with non-misleading evidence removed (eq. in Section 4).
