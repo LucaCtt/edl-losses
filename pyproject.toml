@@ -1,6 +1,6 @@
 [project]
 name = "edl-losses"
-version = "0.4.0"
+version = "0.5.0"
 description = "Implementation of various EDL loss functions"
 readme = "README.md"
 requires-python = ">=3.13"

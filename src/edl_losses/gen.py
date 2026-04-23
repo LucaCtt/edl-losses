@@ -59,3 +59,23 @@ class GENLoss(nn.Module):
 
         # Overall loss (Eq. 6)
         return l1 + l2
+
+
+def gen_inference(logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Compute GEN inference outputs: predicted class, uncertainty, and class probabilities.
+
+    Arguments:
+        logits (Tensor): raw network outputs of shape (batch_size, num_classes).
+
+    Returns:
+        tuple[Tensor, Tensor, Tensor]: predicted class indices, uncertainty scores, and class probabilities.
+
+    """
+    evidence = torch.exp(logits)
+    alpha = evidence + 1.0
+    dirichlet_strength = alpha.sum(dim=-1)
+    p_hat = alpha / dirichlet_strength.unsqueeze(-1)
+    num_classes = logits.shape[-1]
+    uncertainty = num_classes / dirichlet_strength
+
+    return p_hat.argmax(dim=-1), uncertainty, p_hat
