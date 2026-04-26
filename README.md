@@ -67,36 +67,36 @@ from edl_losses import (
 ```python
 edl_loss = EDLLoss(
     loss_type: str = "sse", # "sse" | "ce" | "mse"
-    kl_reg: bool = True,
+    beta: float | Literal["anneal"] = "anneal",
     annealing_epochs: int = 10
 )
 edl_loss(
     logits: Tensor, # (B, K) raw network output, before any activation
     labels: Tensor, # (B,) ground truth class indices
-    epoch: int, # current training epoch, used for KL annealing.
+    epoch: int | None, # current training epoch, used for KL annealing.
 ) -> Tensor # scalar
 ```
 
-Implements Equations 3–5 of Sensoy et al. 2018. ReLU is applied internally to produce evidence. Three base losses are available:
+Implements Equations 3–5 of Sensoy et al. 2018. ReLU is applied internally to produce evidence, but you may want to apply a `softplus` or `exp` to logits to avoid zeroing out negative logits.
 
-- `"sse"` — Sum of squares Bayes risk (recommended by the paper, most stable)
-- `"ce"` — Cross-entropy Bayes risk
-- `"mse"` — Type II Maximum Likelihood
+Three base losses are available:
+- `"sse"`: Sum of squares Bayes risk (recommended by the paper, most stable)
+- `"ce"`: Cross-entropy Bayes risk
+- `"mse"`: Type II Maximum Likelihood
 
-When `kl_reg=True`, a KL divergence term penalizes evidence assigned to incorrect classes, annealed from 0 to 1 over the first `annealing_epochs` epochs.
-
-> **Note:** The original paper uses ReLU for evidence. This can slow convergence compared to GEN/F-EDL which use `exp()`. If accuracy is lower than expected, consider clamping logits and using `exp()` before passing to this loss.
+When `beta` is `"anneal"`, the KL regularization term is weighted by `min(1, epoch / annealing_epochs)`, which gradually increases the influence of the KL term over the first `annealing_epochs` epochs. This helps prevent early underfitting when evidence is still low. When `beta` is set to a fixed value (e.g. `1.0`) applies a constant weight to the KL term throughout training. Setting `beta=0` disables the KL term entirely, which may lead to faster convergence but worse uncertainty estimates.
 
 **Example:**
 
 ```python
 model = MyClassifier()  # output layer has no activation
 optimizer = torch.optim.Adam(model.parameters())
+loss_fn = EDLLoss(loss_type="sse", beta="anneal", annealing_epochs=10)
 
 for epoch in range(1, num_epochs + 1):
     for x, y in dataloader:
         optimizer.zero_grad()
-        loss = EDLLoss()(model(x), y, epoch=epoch, loss_type="sse")
+        loss = loss_fn(model(x), y, epoch)
         loss.backward()
         optimizer.step()
 ```
@@ -115,20 +115,22 @@ Uncertainty is `K / S` where `S = Σαₖ`. Values close to 1 indicate maximum u
 
 ```python
 with torch.no_grad():
-    pred, uncertainty, probs = edl_inference(model(x)) # uncertainty ∈ (0, 1] — high means uncertain
+    pred, uncertainty, probs = edl_inference(model(x))  # uncertainty ∈ (0, 1] — high means uncertain
 ```
 
 ### `GENLoss`
 
 ```python
 gen_loss = GENLoss(
+    beta: float | Literal["auto", "anneal"] = "auto", # KL weight; "auto" uses expected misclassification prob, "anneal" uses linear annealing
+    anneal_epochs: int = 10, # number of epochs for KL annealing if `beta` is "anneal"
     eps:  float = 1e-8,
 )
 gen_loss(
     logits_in: Tensor, # (B, K) network output on in-distribution samples
     logits_out: Tensor, # (B, K) network output on OOD samples
     labels: Tensor, # (B,) ground truth class indices
-    beta: float | str = "auto", # KL weight; "auto" uses expected misclassification prob
+    epoch: int | None = None, # current training epoch for KL annealing if `beta` is set to "anneal"
 ) -> Tensor # scalar
 ```
 
@@ -137,28 +139,38 @@ Implements Equations 4–6 of Sensoy et al. 2020. Requires OOD samples at traini
 - **L1** — Bernoulli NCE loss: trains each output `fₖ` as a binary classifier distinguishing class-k samples from OOD samples.
 - **L2** — KL regularizer: pushes the conditional Dirichlet over non-true classes toward uniform, weighted by `beta`.
 
-When `beta="auto"`, the weight is set to `(1 - p̂ₖ)` per sample, i.e. the expected misclassification probability, which implements learned loss attenuation.
+When `beta="auto"`, the weight is set to `(1 - p̂ₖ)` per sample, i.e. the expected misclassification probability, which implements learned loss attenuation. When `beta="anneal"`, the KL term is weighted by `min(1, epoch / anneal_epochs)`, which gradually increases the influence of the KL term over the first `anneal_epochs` epochs. Setting `beta` to a fixed float applies a constant weight to the KL term throughout training. Setting `beta=0` disables the KL term, which may lead to faster convergence but worse uncertainty estimates.
 
-> **Note:** Clamp logits to a reasonable range (e.g. `[-10, 10]`) before passing to this loss to avoid numerical instability from the internal `exp()`.
+> **Note:** You may want to clamp logits to a reasonable range (e.g. `[-10, 10]`) before passing to this loss to avoid numerical instability from the internal `exp()`.
 
 **Example:**
 
 ```python
+loss_fn = GENLoss(beta="auto")  # or beta="anneal" for linear KL annealing
+
 for x, y in dataloader:
     x_ood = generate_ood_samples(x)  # your OOD generator
     optimizer.zero_grad()
-    loss = GENLoss()(model(x), model(x_ood), y)
+    loss = loss_fn(model(x), model(x_ood), y)
     loss.backward()
     optimizer.step()
 ```
 
-GEN uses the same `edl_inference` function for inference, since the output head is identical to EDL.
+### `gen_inference`
+
+```python
+gen_inference(
+    logits: Tensor, # (B, K) raw network output
+) -> tuple[Tensor, Tensor, Tensor] # (predicted_classes (B,), uncertainty (B,), class_probs (B, K))
+```
+
+This is the same as `edl_inference`, but `exp()` is used instead of `relu()` to comput evidence.
 
 ### `FEDLLoss`
 
 ```python
 fedl_loss = FEDLoss(
-    eps:    float = 1e-8,
+    eps: float = 1e-8,
 )
 fedl_loss(
     alpha: Tensor, # (B, K) concentration parameters, from exp() head
@@ -179,19 +191,21 @@ No KL term or annealing schedule is required. The model must expose three separa
 class MyFEDLModel(nn.Module):
     def forward(self, x):
         z = self.backbone(x)
-        alpha = torch.exp(self.head_alpha(z)) # evidence, > 0
-        p = torch.softmax(self.head_p(z), dim=-1) # allocation probs, sums to 1
-        tau = F.softplus(self.head_tau(z)).squeeze(-1) # dispersion, > 0
+        alpha = torch.exp(self.head_alpha(z))  # evidence, > 0
+        p = torch.softmax(self.head_p(z), dim=-1)  # allocation probs, sums to 1
+        tau = F.softplus(self.head_tau(z)).squeeze(-1)  # dispersion, > 0
         return alpha, p, tau
 ```
 
 **Example:**
 
 ```python
+loss_fn = FEDLoss()
+
 for x, y in dataloader:
     optimizer.zero_grad()
     alpha, p, tau = model(x)
-    loss = FEDLoss()(alpha, p, tau, y)
+    loss = loss_fn(alpha, p, tau, y)
     loss.backward()
     optimizer.step()
 ```

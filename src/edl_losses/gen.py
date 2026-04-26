@@ -38,13 +38,20 @@ class GENLoss(nn.Module):
         self.__anneal_epochs = anneal_epochs
         self.__eps = eps
 
-    def forward(self, logits_in: torch.Tensor, logits_out: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        logits_in: torch.Tensor,
+        logits_out: torch.Tensor,
+        labels: torch.Tensor,
+        epoch: int | None = None,
+    ) -> torch.Tensor:
         """Compute the GEN loss.
 
         Arguments:
             logits_in (Tensor): raw network outputs for in-distribution batch, shape (B, K)
             logits_out (Tensor): raw network outputs for OOD batch, shape (B, K)
             labels (Tensor): ground truth class indices, shape (B,)
+            epoch (int | None): current training epoch for KL annealing if `beta` is set to "anneal".
 
         Returns:
             Tensor: Scalar loss.
@@ -67,7 +74,10 @@ class GENLoss(nn.Module):
         if self.__beta == "auto":
             weight = (1.0 - p_hat_k).detach()
         elif self.__beta == "anneal":
-            weight = min(1.0, self.__anneal_epochs / self.__anneal_epochs)
+            if epoch is None:
+                msg = "Epoch must be provided for KL annealing when beta='anneal'"
+                raise ValueError(msg)
+            weight = min(1.0, epoch / self.__anneal_epochs)
         else:
             weight = self.__beta
 

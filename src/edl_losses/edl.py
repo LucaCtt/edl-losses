@@ -42,13 +42,13 @@ class EDLLoss(torch.nn.Module):
         self.__beta: float | Literal["anneal"] = beta
         self.__annealing_epochs = anneal_epochs
 
-    def forward(self, logits: torch.Tensor, labels: torch.Tensor, epoch: int) -> torch.Tensor:
+    def forward(self, logits: torch.Tensor, labels: torch.Tensor, epoch: int | None) -> torch.Tensor:
         """Compute the EDL loss.
 
         Arguments:
             logits (Tensor): raw model outputs of shape (batch_size, num_classes).
             labels (Tensor): true class labels of shape (batch_size,).
-            epoch (int, optional): current training epoch for KL annealing.
+            epoch (int | None): current training epoch for KL annealing.
 
         Returns:
             Tensor: scalar loss value.
@@ -81,8 +81,13 @@ class EDLLoss(torch.nn.Module):
         alpha_tilde = y + (1.0 - y) * alpha
         kl = _kl_div_dirichlet(alpha_tilde)
 
-        # Annealing coefficient
-        lambda_t = min(1.0, epoch / self.__annealing_epochs) if self.__beta == "anneal" else self.__beta
+        if self.__beta == "anneal":
+            if epoch is None:
+                msg = "Epoch must be provided for KL annealing when beta='anneal'"
+                raise ValueError(msg)
+            lambda_t = min(1.0, epoch / self.__annealing_epochs)
+        else:
+            lambda_t = self.__beta
 
         loss = loss + lambda_t * kl
 
