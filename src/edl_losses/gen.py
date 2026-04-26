@@ -15,18 +15,27 @@ class GENLoss(nn.Module):
 
     """
 
-    def __init__(self, beta: float | Literal["auto"] = "auto", eps: float = 1e-8) -> None:
+    def __init__(
+        self,
+        beta: float | Literal["auto", "anneal"] = "auto",
+        anneal_epochs: int = 10,
+        eps: float = 1e-8,
+    ) -> None:
         """Initialize the GEN loss module.
 
         Arguments:
-            beta (float | Literal["auto"]): regularization weight for L2 term.
+            beta (float | Literal["auto", "anneal"]): regularization weight for L2 term.
                 If "auto", uses the expected misclassification probability as in Eq. 6.
+                If "anneal", linearly anneals from 0 to 1 over the first `anneal_epochs` epochs.
+                Otherwise, uses the specified constant value. Set to 0 to disable the L2 term.
+            anneal_epochs (int): number of epochs over which to anneal the beta parameter if `beta` is set to "anneal".
             eps (float): small constant for numerical stability.
 
         """
         super().__init__()
 
-        self.__beta: float | Literal["auto"] = beta
+        self.__beta: float | Literal["auto", "anneal"] = beta
+        self.__anneal_epochs = anneal_epochs
         self.__eps = eps
 
     def forward(self, logits_in: torch.Tensor, logits_out: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
@@ -53,9 +62,16 @@ class GENLoss(nn.Module):
         evidence_in = torch.exp(logits_in)
         alpha_in = evidence_in + 1.0
         p_hat_k = (alpha_in * y).sum(dim=-1) / alpha_in.sum(dim=-1)
-        weight = (1.0 - p_hat_k).detach() if self.__beta == "auto" else self.__beta
-        alpha_wrong = alpha_in[~y.bool()].view(logits_in.shape[0], num_classes - 1)
-        l2 = (weight * _kl_div_dirichlet(alpha_wrong)).mean()
+        alpha_minus_k = (1.0 - y) * alpha_in + y * 1.0  # (B, K)
+
+        if self.__beta == "auto":
+            weight = (1.0 - p_hat_k).detach()
+        elif self.__beta == "anneal":
+            weight = min(1.0, self.__anneal_epochs / self.__anneal_epochs)
+        else:
+            weight = self.__beta
+
+        l2 = (weight * _kl_div_dirichlet(alpha_minus_k)).mean()
 
         # Overall loss (Eq. 6)
         return l1 + l2

@@ -9,17 +9,19 @@ from edl_losses.util import _kl_div_dirichlet
 class EDLLoss(torch.nn.Module):
     """Evidential Deep Learning loss, implementing Eqs. 3-5 from Sensoy et al. 2018 (http://arxiv.org/abs/1806.01768).
 
-    This loss should be called with the raw network outputs (logits) before any activation,
-    since the EDL formulation replaces the usual softmax with a ReLU to produce "evidence" for each class.
-    ReLU is already applied inside this loss.
+    This loss should be called with the network outputs (logits) before any activation.
+    Following the original EDL formulation, ReLU is applied in this loss
+    to produce non-negative "evidence" for each class.
+    However, you may want to apply a `softplus` or `exp` activation to the logits before passing them
+    to avoid losing evidence due to negative logits.
 
     """
 
     def __init__(
         self,
         loss_type: Literal["sse", "ce", "mse"] = "sse",
-        kl_reg: bool = True,
-        annealing_epochs: int = 10,
+        beta: float | Literal["anneal"] = "anneal",
+        anneal_epochs: int = 10,
     ) -> None:
         """Initialize the EDL loss module.
 
@@ -28,15 +30,17 @@ class EDLLoss(torch.nn.Module):
                 - "sse": Sum of squares Bayes risk (Eq. 5) — recommended by paper.
                 - "ce":  Cross-entropy Bayes risk (Eq. 4).
                 - "mse": Type II Maximum Likelihood (Eq. 3).
-            kl_reg (bool): whether to add KL regularization term.
-            annealing_epochs (int): number of epochs over which to anneal the KL term.
+            beta (float | Literal["anneal"]): weight for the KL regularization term.
+                If "anneal", linearly anneals from 0 to 1 over the first `anneal_epochs` epochs.
+                Otherwise, uses the specified constant value. Set to 0 to disable the KL term.
+            anneal_epochs (int): number of epochs over which to anneal the KL term.
 
         """
         super().__init__()
 
         self.__loss_type = loss_type
-        self.__kl_reg = kl_reg
-        self.__annealing_epochs = annealing_epochs
+        self.__beta: float | Literal["anneal"] = beta
+        self.__annealing_epochs = anneal_epochs
 
     def forward(self, logits: torch.Tensor, labels: torch.Tensor, epoch: int) -> torch.Tensor:
         """Compute the EDL loss.
@@ -72,16 +76,15 @@ class EDLLoss(torch.nn.Module):
             loss = (err + var).sum(dim=-1)
 
         # KL regularization (Section 4)
-        if self.__kl_reg:
-            # Remove non-misleading evidence: alpha_tilde = y + (1 - y) * alpha
-            # This zeroes out evidence for the correct class before penalizing
-            alpha_tilde = y + (1.0 - y) * alpha
-            kl = _kl_div_dirichlet(alpha_tilde)
+        # Remove non-misleading evidence: alpha_tilde = y + (1 - y) * alpha
+        # This zeroes out evidence for the correct class before penalizing
+        alpha_tilde = y + (1.0 - y) * alpha
+        kl = _kl_div_dirichlet(alpha_tilde)
 
-            # Annealing coefficient: ramps from 0 to 1 over the first `annealing_epochs` epochs
-            lambda_t = min(1.0, epoch / self.__annealing_epochs)
+        # Annealing coefficient
+        lambda_t = min(1.0, epoch / self.__annealing_epochs) if self.__beta == "anneal" else self.__beta
 
-            loss = loss + lambda_t * kl
+        loss = loss + lambda_t * kl
 
         return loss.mean()
 
