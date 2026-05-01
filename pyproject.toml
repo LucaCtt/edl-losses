@@ -1,6 +1,6 @@
 [project]
 name = "edl-losses"
-version = "0.6.0"
+version = "0.6.1"
 authors = [{ name = "Luca Cotti", email = "luca.cotti@unibs.it" }]
 description = "Implementation of various EDL loss functions"
 readme = "README.md"
