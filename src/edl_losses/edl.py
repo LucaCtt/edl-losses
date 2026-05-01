@@ -3,7 +3,7 @@ from typing import Literal
 import torch
 import torch.nn.functional as func
 
-from edl_losses.util import _kl_div_dirichlet
+from edl_losses.util import kl_div_dirichlet
 
 
 class EDLLoss(torch.nn.Module):
@@ -12,8 +12,6 @@ class EDLLoss(torch.nn.Module):
     This loss should be called with the network outputs (logits) before any activation.
     Following the original EDL formulation, ReLU is applied in this loss
     to produce non-negative "evidence" for each class.
-    However, you may want to apply a `softplus` or `exp` activation to the logits before passing them
-    to avoid losing evidence due to negative logits.
 
     """
 
@@ -38,9 +36,9 @@ class EDLLoss(torch.nn.Module):
         """
         super().__init__()
 
-        self.__loss_type = loss_type
-        self.__beta: float | Literal["anneal"] = beta
-        self.__annealing_epochs = anneal_epochs
+        self._loss_type = loss_type
+        self._beta: float | Literal["anneal"] = beta
+        self._annealing_epochs = anneal_epochs
 
     def forward(self, logits: torch.Tensor, labels: torch.Tensor, epoch: int | None) -> torch.Tensor:
         """Compute the EDL loss.
@@ -63,10 +61,10 @@ class EDLLoss(torch.nn.Module):
         # One-hot encode labels
         y = func.one_hot(labels, num_classes=num_classes).float()
 
-        if self.__loss_type == "mse":
+        if self._loss_type == "mse":
             # Eq. 3 - Type II Maximum Likelihood
             loss = (y * (torch.log(dirichlet_strength) - torch.log(alpha))).sum(dim=-1)
-        elif self.__loss_type == "ce":
+        elif self._loss_type == "ce":
             # Eq. 4 - Cross-entropy Bayes risk (uses digamma)
             loss = (y * (torch.digamma(dirichlet_strength) - torch.digamma(alpha))).sum(dim=-1)
         else:
@@ -78,20 +76,21 @@ class EDLLoss(torch.nn.Module):
         # KL regularization (Section 4)
         # Remove non-misleading evidence: alpha_tilde = y + (1 - y) * alpha
         # This zeroes out evidence for the correct class before penalizing
-        alpha_tilde = y + (1.0 - y) * alpha
-        kl = _kl_div_dirichlet(alpha_tilde)
-
-        if self.__beta == "anneal":
+        if self._beta == "anneal":
             if epoch is None:
                 msg = "Epoch must be provided for KL annealing when beta='anneal'"
                 raise ValueError(msg)
-            lambda_t = min(1.0, epoch / self.__annealing_epochs)
+            lambda_t = min(1.0, epoch / self._annealing_epochs)
         else:
-            lambda_t = self.__beta
+            lambda_t = self._beta
 
-        loss = loss + lambda_t * kl
+        if lambda_t <= 0:
+            return loss.mean()
 
-        return loss.mean()
+        alpha_tilde = y + (1.0 - y) * alpha
+        kl = kl_div_dirichlet(alpha_tilde)
+
+        return (loss + lambda_t * kl).mean()
 
 
 def edl_inference(logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:

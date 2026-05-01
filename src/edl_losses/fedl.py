@@ -22,7 +22,7 @@ class FEDLLoss(torch.nn.Module):
         """
         super().__init__()
 
-        self.__eps = eps
+        self._eps = eps
 
     def forward(
         self,
@@ -51,20 +51,20 @@ class FEDLLoss(torch.nn.Module):
         alpha0 = alpha.sum(dim=-1, keepdim=True)
 
         # Expected class probabilities under FD
-        denom = alpha0 + tau + self.__eps
+        denom = alpha0 + tau + self._eps
         expected_pi = (alpha + tau * p) / denom
 
         # Variance of FD
         denom1 = denom + 1
         term1 = (expected_pi * (1.0 - expected_pi)) / denom1
         var_p = p * (1.0 - p)
-        term2 = (tau**2 * var_p) / (denom * denom1 + self.__eps)
+        term2 = (tau**2 * var_p) / (denom * denom1 + self._eps)
         variance_pi = term1 + term2
 
         # Expected MSE over FD
         l_mse = ((y - expected_pi) ** 2 + variance_pi).sum(dim=-1)
 
-        # Regularization term (Brier scor)
+        # Regularization term (Brier score)
         l_reg = ((y - p) ** 2).sum(dim=-1)
 
         return (l_mse + l_reg).mean()

@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as func
 from torch import nn
 
-from edl_losses.util import _kl_div_dirichlet
+from edl_losses.util import kl_div_dirichlet
 
 
 class GENLoss(nn.Module):
@@ -34,9 +34,9 @@ class GENLoss(nn.Module):
         """
         super().__init__()
 
-        self.__beta: float | Literal["auto", "anneal"] = beta
-        self.__anneal_epochs = anneal_epochs
-        self.__eps = eps
+        self._beta: float | Literal["auto", "anneal"] = beta
+        self._anneal_epochs = anneal_epochs
+        self._eps = eps
 
     def forward(
         self,
@@ -61,7 +61,7 @@ class GENLoss(nn.Module):
         y = func.one_hot(labels, num_classes=num_classes).float()
 
         # L1 — Bernoulli NCE loss (Eq. 4)
-        pos_per_class = (func.logsigmoid(logits_in) * y).sum(dim=0) / (y.sum(dim=0) + self.__eps)
+        pos_per_class = (func.logsigmoid(logits_in) * y).sum(dim=0) / (y.sum(dim=0) + self._eps)
         neg_per_class = func.logsigmoid(-logits_out).mean(dim=0)
         l1 = -(pos_per_class + neg_per_class).mean()
 
@@ -71,17 +71,20 @@ class GENLoss(nn.Module):
         p_hat_k = (alpha_in * y).sum(dim=-1) / alpha_in.sum(dim=-1)
         alpha_minus_k = (1.0 - y) * alpha_in + y * 1.0  # (B, K)
 
-        if self.__beta == "auto":
+        if self._beta == "auto":
             weight = (1.0 - p_hat_k).detach()
-        elif self.__beta == "anneal":
+        elif self._beta == "anneal":
             if epoch is None:
                 msg = "Epoch must be provided for KL annealing when beta='anneal'"
                 raise ValueError(msg)
-            weight = min(1.0, epoch / self.__anneal_epochs)
+            weight = min(1.0, epoch / self._anneal_epochs)
         else:
-            weight = self.__beta
+            weight = self._beta
 
-        l2 = (weight * _kl_div_dirichlet(alpha_minus_k)).mean()
+        if weight <= 0:
+            return l1
+
+        l2 = (weight * kl_div_dirichlet(alpha_minus_k)).mean()
 
         # Overall loss (Eq. 6)
         return l1 + l2

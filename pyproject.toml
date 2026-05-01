@@ -1,18 +1,27 @@
 [project]
 name = "edl-losses"
 version = "0.6.0"
+authors = [{ name = "Luca Cotti", email = "luca.cotti@unibs.it" }]
 description = "Implementation of various EDL loss functions"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = [
-    "numpy>=2.4.4",
-    "torch>=2.11.0",
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
 ]
+license="MIT"
+license-files = ["LICENSE"]
+dependencies = ["numpy>=2.4.4", "torch>=2.11.0"]
+
+[project.urls]
+"Homepage" = "https://github.com/LucaCtt/edl-losses"
+"Repository" = "https://github.com/LucaCtt/edl-losses"
 
 [dependency-groups]
 dev = [
     "ipykernel>=7.2.0",
     "matplotlib>=3.10.8",
+    "pytest>=9.0.3",
     "ruff>=0.15.11",
     "scipy>=1.17.1",
     "torchvision>=0.26.0",
@@ -31,18 +40,17 @@ select = [
     "ALL", # include all the rules, including new ones
 ]
 ignore = [
-    "D100",    # Missing docstring in public module
-    "D104",    # Missing docstring in public package
-    "D105",    # Missing docstring in magic method
-    "D203",    # Incorrect blank line before class
-    "D213",    # Multi line summary second line
-    "FBT001",  # Boolean-typed positional argument in function definition
-    "FBT002",  # Boolean-typed keyword argument in function definition
-    "FBT003",  # Boolean positional value in function call
-    "UP037",   # Remove quotes from type annotation
-    "TC001",   # Move application import into a type-checking block
-    "TC002",   # Move third-party import into a type-checking block
-    "TC003",   # Move standard library import into a type-checking block
-    "T201",    # `print` found
+    "D100",   # Missing docstring in public module
+    "D104",   # Missing docstring in public package
+    "D105",   # Missing docstring in magic method
+    "D203",   # Incorrect blank line before class
+    "D213",   # Multi line summary second line
+    "FBT001", # Boolean-typed positional argument in function definition
+    "FBT002", # Boolean-typed keyword argument in function definition
+    "FBT003", # Boolean positional value in function call
+    "UP037",  # Remove quotes from type annotation
+    "TC001",  # Move application import into a type-checking block
+    "TC002",  # Move third-party import into a type-checking block
+    "TC003",  # Move standard library import into a type-checking block
+    "T201",   # `print` found
 ]
-
