@@ -81,7 +81,7 @@ class GENLoss(nn.Module):
         else:
             weight = self._beta
 
-        if weight <= 0:
+        if not isinstance(weight, torch.Tensor) and weight <= 0:
             return l1
 
         l2 = (weight * kl_div_dirichlet(alpha_minus_k)).mean()

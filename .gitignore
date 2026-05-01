@@ -9,5 +9,12 @@ wheels/
 # Virtual environments
 .venv
 
-# Data
+# VSCode settings
+.vscode/
+
+# Tests
+.pytest_cache/
+.coverage
+
+# Datasets
 data/
