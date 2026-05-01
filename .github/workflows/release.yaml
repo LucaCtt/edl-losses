@@ -1,7 +1,6 @@
 name: "Release"
 
 on:
-  workflow_dispatch:
   push:
     tags:
       # Publish on any tag starting with a `v`, e.g., v0.1.0
@@ -26,7 +25,7 @@ jobs:
         run: uv build
 
       - name: Upload distribution artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v8
         with:
           name: dist
           path: dist/*
